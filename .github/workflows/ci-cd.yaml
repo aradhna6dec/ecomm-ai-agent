@@ -1,0 +1,83 @@
+name: AI E-Commerce Agent CI/CD
+
+# Trigger the pipeline on every push to the main branch
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  # --- STAGE 1: Code Quality ---
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install flake8 pytest
+          # In a real app, you'd run tests here: pytest tests/
+      - name: Lint with flake8
+        run: flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+
+  # --- STAGE 2: Build & Security Scan ---
+  build-and-scan:
+    needs: lint-and-test # Only run if tests pass
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      # Set up Docker Buildx for advanced caching (Crucial for speed)
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        
+      - name: Build Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          load: true # Loads it into the local runner so Trivy can scan it
+          tags: ecomm-ai-agent:${{ github.sha }}
+          cache-from: type=gha # Use GitHub Actions caching to speed up builds!
+          cache-to: type=gha,mode=max
+
+      # Run Trivy vulnerability scanner
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'ecomm-ai-agent:${{ github.sha }}'
+          format: 'table'
+          exit-code: '1' # Fails the pipeline if CRITICAL vulnerabilities are found!
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+
+  # --- STAGE 3: Deploy to Kubernetes ---
+  deploy:
+    needs: build-and-scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      # (In a real scenario, you would authenticate to AWS ECR/DockerHub and push the image here)
+      
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v3
+        
+      # Interviewer Trap Note: GitHub cloud runners cannot reach your local laptop's Kubernetes.
+      # To make this work locally, you would need a Self-Hosted GitHub Runner on your PC.
+      # But for a cloud deployment, you configure Kubeconfig like this:
+      - name: Set Kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBECONFIG_DATA }}" | base64 -d > ~/.kube/config
+          
+      - name: Deploy to K8s
+        run: |
+          # Dynamically update the image tag in the deployment file to the new Git Commit SHA
+          sed -i "s|image: ecomm-ai-agent:.*|image: your-registry/ecomm-ai-agent:${{ github.sha }}|g" k8s/ecomm-prod-stack.yaml
+          
+          kubectl apply -f k8s/ecomm-prod-stack.yaml
+          kubectl apply -f k8s/ecomm-hpa.yaml
