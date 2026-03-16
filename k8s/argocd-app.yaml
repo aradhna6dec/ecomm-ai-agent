@@ -1,0 +1,18 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ecomm-ai-agent-app
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: 'https://github.com/aradhna6dec/ecomm-ai-agent.git'
+    targetRevision: HEAD
+    path: k8s # Argo will look inside this folder for your YAMLs
+  destination:
+    server: 'https://kubernetes.default.svc'
+    namespace: ecomm-prod
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true # This forces K8s to match GitHub exactly!
