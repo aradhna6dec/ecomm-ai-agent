@@ -1,0 +1,74 @@
+---
+# Persistent Storage for Qdrant Vectors
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: qdrant-pvc
+  labels:
+    app: qdrant
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+
+---
+# Qdrant Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: qdrant
+  labels:
+    app: qdrant
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: qdrant
+  template:
+    metadata:
+      labels:
+        app: qdrant
+    spec:
+      containers:
+      - name: qdrant
+        image: qdrant/qdrant:latest
+        ports:
+        - containerPort: 6333 # HTTP Port
+        - containerPort: 6334 # gRPC Port
+        volumeMounts:
+        - name: qdrant-storage
+          mountPath: /qdrant/storage
+        # Optional: Add resource limits here so it doesn't eat all your 36GB RAM
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "4Gi"
+            cpu: "2"
+      volumes:
+      - name: qdrant-storage
+        persistentVolumeClaim:
+          claimName: qdrant-pvc
+
+---
+# Qdrant Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: qdrant-service
+spec:
+  type: ClusterIP
+  selector:
+    app: qdrant
+  ports:
+    - name: http
+      protocol: TCP
+      port: 6333
+      targetPort: 6333
+    - name: grpc
+      protocol: TCP
+      port: 6334
+      targetPort: 6334

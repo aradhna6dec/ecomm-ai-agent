@@ -1,0 +1,122 @@
+---
+# 1. THE NAMESPACE
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ecomm-prod
+  labels:
+    environment: production
+
+---
+# 2. THE CONFIGMAP (For non-sensitive configuration)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ai-agent-config
+  namespace: ecomm-prod
+data:
+  # Notice the cross-namespace DNS routing here!
+  QDRANT_URL: "http://qdrant-service.default.svc.cluster.local:6333"
+  OLLAMA_URL: "http://host.docker.internal:11434"
+  # Configuration for our NGINX Sidecar
+  nginx.conf: |
+    events {}
+    http {
+      server {
+        listen 80;
+        location / {
+          proxy_pass http://localhost:8501; # Routes to Streamlit inside the same pod
+        }
+        location /metrics {
+          return 200 'fake_prometheus_metrics_here'; # Mock endpoint for Prometheus
+        }
+      }
+    }
+
+---
+# 3. THE SECRET (Must be recreated in the new namespace!)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ai-backend-secrets
+  namespace: ecomm-prod
+type: Opaque
+stringData:
+  QDRANT_API_KEY: "super_secure_key_123"
+
+---
+# 4. THE DEPLOYMENT (With Sidecar)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ecomm-ai-agent
+  namespace: ecomm-prod
+  labels:
+    app: ecomm-ai-agent
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ecomm-ai-agent
+  template:
+    metadata:
+      labels:
+        app: ecomm-ai-agent
+    spec:
+      # A Pod can have multiple containers sharing the same network/localhost!
+      containers:
+      
+      # Container A: Your LangGraph / Streamlit AI Agent
+      - name: agent-ui
+        image: ecomm-ai-agent:v1.1
+        imagePullPolicy: IfNotPresent 
+        ports:
+        - containerPort: 8501
+        envFrom:
+        - configMapRef:
+            name: ai-agent-config # Pulls QDRANT_URL and OLLAMA_URL automatically
+        env:
+        - name: QDRANT_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: ai-backend-secrets
+              key: QDRANT_API_KEY
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+
+      # Container B: The NGINX Sidecar
+      - name: nginx-sidecar-proxy
+        image: nginx:alpine
+        ports:
+        - containerPort: 80 # The proxy listens on 80 and forwards to Streamlit on 8501
+        volumeMounts:
+        - name: nginx-config-volume
+          mountPath: /etc/nginx/nginx.conf
+          subPath: nginx.conf
+
+      volumes:
+      # Mount the NGINX config from our ConfigMap into the sidecar
+      - name: nginx-config-volume
+        configMap:
+          name: ai-agent-config
+
+---
+# 5. THE SERVICE
+apiVersion: v1
+kind: Service
+metadata:
+  name: ecomm-ai-agent-service
+  namespace: ecomm-prod
+spec:
+  type: LoadBalancer 
+  selector:
+    app: ecomm-ai-agent
+  ports:
+    - protocol: TCP
+      port: 80 # We now expose the NGINX sidecar port instead of Streamlit directly!
+      targetPort: 80

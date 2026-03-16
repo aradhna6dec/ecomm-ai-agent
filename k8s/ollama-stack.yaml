@@ -1,0 +1,63 @@
+---
+# Persistent Storage for Ollama Models
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ollama-pvc
+  labels:
+    app: ollama
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi # Enough space for a few quantized 8B models
+
+---
+# Ollama Deployment with GPU Allocation
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama
+  labels:
+    app: ollama
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ollama
+  template:
+    metadata:
+      labels:
+        app: ollama
+    spec:
+      containers:
+      - name: ollama
+        image: ollama/ollama:latest
+        ports:
+        - containerPort: 11434
+        resources:
+          limits:
+            nvidia.com/gpu: 1 # CRITICAL: Requests your RTX 2080
+        volumeMounts:
+        - name: ollama-storage
+          mountPath: /root/.ollama
+      volumes:
+      - name: ollama-storage
+        persistentVolumeClaim:
+          claimName: ollama-pvc
+
+---
+# Ollama Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama-service
+spec:
+  type: ClusterIP # Change to NodePort or LoadBalancer if you want to access it outside the cluster easily
+  selector:
+    app: ollama
+  ports:
+    - protocol: TCP
+      port: 11434
+      targetPort: 11434

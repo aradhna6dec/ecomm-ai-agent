@@ -1,0 +1,90 @@
+---
+# 1. The Deployment (The App Replicas)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ecomm-ai-agent
+  labels:
+    app: ecomm-ai-agent
+spec:
+  replicas: 2 # Standard for high availability
+  selector:
+    matchLabels:
+      app: ecomm-ai-agent
+  template:
+    metadata:
+      labels:
+        app: ecomm-ai-agent
+    spec:
+      # --- SRE BEST PRACTICE: Security Context ---
+      # Forces the pod to run as the non-root 'appuser' we created in the Dockerfile
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000 
+      
+      containers:
+      - name: agent-ui
+        image: ecomm-ai-agent:v1.1
+        # CRITICAL FOR LOCAL DEV: Tells K8s to use your local image, not pull from Docker Hub
+        imagePullPolicy: IfNotPresent 
+        
+        ports:
+        - containerPort: 8501
+        
+        # --- Environment Configuration & Secrets ---
+        env:
+        # Qdrant is inside K8s, so we use its internal DNS name
+        - name: QDRANT_URL
+          value: "http://qdrant-service:6333" 
+        # Ollama is running in native Docker, so we bridge to the host
+        - name: OLLAMA_URL
+          value: "http://host.docker.internal:11434" 
+        
+        # Injecting the Secret we discussed earlier
+        - name: QDRANT_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: ai-backend-secrets
+              key: QDRANT_API_KEY
+              optional: true # Set to true so the pod doesn't crash if you haven't applied the secret yet
+
+        # --- SRE BEST PRACTICE: Resource Allocation ---
+        # Prevents this container from starving other K8s pods
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+
+        # --- SRE BEST PRACTICE: Health Probes ---
+        # Tells the K8s LoadBalancer if the app is actually ready for traffic
+        livenessProbe:
+          httpGet:
+            path: /_stcore/health
+            port: 8501
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        readinessProbe:
+          httpGet:
+            path: /_stcore/health
+            port: 8501
+          initialDelaySeconds: 5
+          periodSeconds: 10
+
+---
+# 2. The Service (The Networking Gateway)
+apiVersion: v1
+kind: Service
+metadata:
+  name: ecomm-ai-agent-service
+spec:
+  # LoadBalancer automatically exposes port 8501 to your localhost in Docker Desktop
+  type: LoadBalancer 
+  selector:
+    app: ecomm-ai-agent
+  ports:
+    - protocol: TCP
+      port: 8501
+      targetPort: 8501
