@@ -16,6 +16,8 @@ OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 # Securely grab the key
 qdrant_key = os.getenv("QDRANT_API_KEY")
 
+embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+
 vector_store = QdrantVectorStore(
     client=QdrantClient(url=QDRANT_URL, api_key=qdrant_key), # Passed securely here
     collection_name="ecommerce_catalog",
