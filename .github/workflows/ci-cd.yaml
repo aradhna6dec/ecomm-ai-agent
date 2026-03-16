@@ -54,30 +54,30 @@ jobs:
           vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
 
-  # --- STAGE 3: Deploy to Kubernetes ---
-  deploy:
-    needs: build-and-scan
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+  # # --- STAGE 3: Deploy to Kubernetes ---
+  # deploy:
+  #   needs: build-and-scan
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
       
-      # (In a real scenario, you would authenticate to AWS ECR/DockerHub and push the image here)
+  #     # (In a real scenario, you would authenticate to AWS ECR/DockerHub and push the image here)
       
-      - name: Install kubectl
-        uses: azure/setup-kubectl@v3
+  #     - name: Install kubectl
+  #       uses: azure/setup-kubectl@v3
         
-      # Interviewer Trap Note: GitHub cloud runners cannot reach your local laptop's Kubernetes.
-      # To make this work locally, you would need a Self-Hosted GitHub Runner on your PC.
-      # But for a cloud deployment, you configure Kubeconfig like this:
-      - name: Set Kubeconfig
-        run: |
-          mkdir -p ~/.kube
-          echo "${{ secrets.KUBECONFIG_DATA }}" | base64 -d > ~/.kube/config
+  #     # Interviewer Trap Note: GitHub cloud runners cannot reach your local laptop's Kubernetes.
+  #     # To make this work locally, you would need a Self-Hosted GitHub Runner on your PC.
+  #     # But for a cloud deployment, you configure Kubeconfig like this:
+  #     - name: Set Kubeconfig
+  #       run: |
+  #         mkdir -p ~/.kube
+  #         echo "${{ secrets.KUBECONFIG_DATA }}" | base64 -d > ~/.kube/config
           
-      - name: Deploy to K8s
-        run: |
-          # Dynamically update the image tag in the deployment file to the new Git Commit SHA
-          sed -i "s|image: ecomm-ai-agent:.*|image: your-registry/ecomm-ai-agent:${{ github.sha }}|g" k8s/ecomm-prod-stack.yaml
+  #     - name: Deploy to K8s
+  #       run: |
+  #         # Dynamically update the image tag in the deployment file to the new Git Commit SHA
+  #         sed -i "s|image: ecomm-ai-agent:.*|image: your-registry/ecomm-ai-agent:${{ github.sha }}|g" k8s/ecomm-prod-stack.yaml
           
-          kubectl apply -f k8s/ecomm-prod-stack.yaml
-          kubectl apply -f k8s/ecomm-hpa.yaml
+  #         kubectl apply -f k8s/ecomm-prod-stack.yaml
+  #         kubectl apply -f k8s/ecomm-hpa.yaml
